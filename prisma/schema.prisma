@@ -1,0 +1,99 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Account {
+  id           String        @id
+  balance      Float
+  createdAt    DateTime      @default(now())
+  isFlagged    Boolean       @default(false)
+  transactions Transaction[]
+}
+
+model Transaction {
+  id        String   @id
+  accountId String
+  type      String
+  amount    Float
+  status    String
+  createdAt         DateTime      @default(now())
+  ipAddress         String?
+  deviceFingerprint String?
+
+  account         Account         @relation(fields: [accountId], references: [id])
+  fraudAnalysis   FraudAnalysis?
+  orchestrator    TransactionOrchestrator?
+}
+
+model FraudAnalysis {
+  id            String      @id @default(uuid())
+  transactionId String      @unique
+  status        String      // PENDING, ANALYZED, FAILED
+  reason        String?
+  createdAt     DateTime    @default(now())
+
+  transaction   Transaction @relation(fields: [transactionId], references: [id])
+}
+
+model LedgerEntry {
+  id              String   @id @default(uuid())
+  transactionId   String   @unique
+  accountId       String
+  amount          Float
+  balanceAfter    Float
+  createdAt       DateTime @default(now())
+}
+
+model DailyMetrics {
+  id              String   @id @default(uuid())
+  date            String   @unique 
+  totalTxnCount   Int      @default(0)
+  totalVolume     Float    @default(0)
+  updatedAt       DateTime @updatedAt
+}
+
+model OutboxEvent {
+  id            String   @id @default(uuid())
+  eventType     String
+  payload       String   // JSON stringified payload
+  status        String   @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED, DLQ
+  retryCount    Int      @default(0)
+  nextRetryAt   DateTime @default(now())
+  errorReason   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model DeadLetterQueue {
+  id            String   @id @default(uuid())
+  eventId       String   @unique
+  eventType     String
+  payload       String
+  failureReason String?
+  createdAt     DateTime @default(now())
+}
+
+model TransactionOrchestrator {
+  id              String   @id @default(uuid())
+  transactionId   String   @unique
+  paymentAuth     Boolean  @default(false) 
+  ledgerUpdated   Boolean  @default(false)
+  status          String   @default("PENDING") // PENDING, FINALIZED, COMPENSATED
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  transaction     Transaction @relation(fields: [transactionId], references: [id])
+}
+
+model EventStore {
+  id              String   @id @default(uuid())
+  aggregateId     String
+  correlationId   String
+  eventType       String
+  payload         String
+  createdAt       DateTime @default(now())
+}
