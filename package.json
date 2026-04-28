@@ -17,6 +17,7 @@
     "better-sqlite3": "^12.9.0",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "kafkajs": "^2.2.4",
     "nodemon": "^3.1.14",
     "prisma": "^7.7.0"
   }

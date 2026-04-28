@@ -1,6 +1,10 @@
 import express from "express";
 import accountRoutes from './src/routes/account.routes.js';
 import transactionRoutes from './src/routes/transaction.routes.js';
+import { connectKafka } from './src/lib/kafka.js';
+
+await connectKafka();
+
 import './src/services/outbox.worker.js';
 import './src/services/orchestrator.service.js';
 import './src/consumers/audit.consumer.js';

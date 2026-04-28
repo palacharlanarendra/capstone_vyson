@@ -8,6 +8,7 @@ import auditService from '../src/services/audit.service.js';
 import outboxWorker from '../src/services/outbox.worker.js';
 import '../src/consumers/ledger.consumer.js';
 import '../src/consumers/audit.consumer.js';
+import { connectKafka } from '../src/lib/kafka.js';
 
 // Setup dependencies
 const accountService = new AccountService();
@@ -24,7 +25,11 @@ test('Banking App Architecture Tests', async (t) => {
         await prisma.account.deleteMany();
         await prisma.outboxEvent.deleteMany();
         await prisma.deadLetterQueue.deleteMany();
-        await prisma.eventStore.deleteMany();
+        // EventStore table is deprecated in favor of Kafka Event Sourcing, 
+        // but we'll clear it natively if the schema hasn't dropped it yet.
+        try { await prisma.eventStore.deleteMany(); } catch (e) {}
+
+        await connectKafka();
     });
 
     await t.test('1. Duplicate transaction request (Idempotency)', async () => {
@@ -142,20 +147,24 @@ test('Banking App Architecture Tests', async (t) => {
     });
 
     await t.test('6. Event replay rebuilding balances', async () => {
-        await accountService.createAccount({ id: 'acc_replay', initialBalance: 5000 });
+        // Since Kafka is distributed and durable, we must isolate this test aggregate vector 
+        // to prevent history from previous test runs accumulating in the event stream.
+        const dynamicAccountId = `acc_replay_${Date.now()}`;
+        
+        await accountService.createAccount({ id: dynamicAccountId, initialBalance: 5000 });
 
         // Push some valid activity into DB
-        await transactionService.createTransaction({ transaction_id: 'r1', account_id: 'acc_replay', type: 'DEBIT', amount: 300 });
-        await transactionService.createTransaction({ transaction_id: 'r2', account_id: 'acc_replay', type: 'CREDIT', amount: 1000 });
+        await transactionService.createTransaction({ transaction_id: `r1_${Date.now()}`, account_id: dynamicAccountId, type: 'DEBIT', amount: 300 });
+        await transactionService.createTransaction({ transaction_id: `r2_${Date.now()}`, account_id: dynamicAccountId, type: 'CREDIT', amount: 1000 });
 
         // Let the asynchronous consumer trigger finishes
         await outboxWorker.poll();
 
         // 5000 - 300 + 1000 = 5700
-        // Wait slightly for events to persist by audit worker since it's an eventBus tick
+        // Wait slightly for events to flush to local partition buffer by kafkajs producer
         await new Promise(resolve => setTimeout(resolve, 800));
 
-        const derivedBalance = await auditService.rebuildBalanceFromEvents('acc_replay');
+        const derivedBalance = await auditService.rebuildBalanceFromEvents(dynamicAccountId);
         assert.equal(derivedBalance, 5700, "Event sourced deterministic math failed to map truth");
         process.exit(0);
     });

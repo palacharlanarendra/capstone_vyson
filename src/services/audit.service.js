@@ -1,48 +1,91 @@
-import prisma from '../lib/prisma.js';
+import { getKafka } from '../lib/kafka.js';
 
-class AuditService {
+class KafkaAuditService {
     /**
-     * Trace an entire event correlation path to answer regulatory queries "Why was X debited?"
-     * @param {string} correlationId - The transaction ID
+     * Reads historical data synchronously from the topic for replay
+     */
+    async fetchAllEvents(topic, filterPredicate = () => true) {
+        const kafka = getKafka();
+        const consumer = kafka.consumer({ groupId: `audit-query-${Date.now()}` });
+        
+        await consumer.connect();
+        await consumer.subscribe({ topic, fromBeginning: true });
+        
+        const results = [];
+        let consuming = true;
+        
+        return new Promise(async (resolve) => {
+            // Because standard Kafka flows are infinite, this query sets an auto-finish timeout when the local offset cache reaches HEAD.
+            let timeout;
+            const finish = async () => {
+                if (!consuming) return;
+                consuming = false;
+                await consumer.disconnect();
+                
+                // Sort ascending by Kafka log time to guarantee chronological determinism
+                results.sort((a,b) => parseInt(a.timestamp) - parseInt(b.timestamp));
+                resolve(results);
+            };
+
+            await consumer.run({
+                eachMessage: async ({ message }) => {
+                    clearTimeout(timeout);
+                    try {
+                        const eventData = JSON.parse(message.value.toString());
+                        const eventType = message.headers?.eventType?.toString();
+                        
+                        const fullEvent = {
+                            correlationId: message.key.toString(),
+                            eventType,
+                            payload: eventData,
+                            timestamp: message.timestamp
+                        };
+                        
+                        if (filterPredicate(fullEvent)) {
+                            results.push(fullEvent);
+                        }
+                    } catch (e) {
+                         // silently ignore parsing errors from alien producers
+                    }
+                    // Extend tail timeout every time we see activity
+                    timeout = setTimeout(finish, 400);
+                }
+            });
+            // Initial boot timeout
+            timeout = setTimeout(finish, 1500);
+        });
+    }
+
+    /**
+     * Trace an entire event correlation path using Kafka logs
+     * @param {string} correlationId
      */
     async traceEventPath(correlationId) {
-        const events = await prisma.eventStore.findMany({
-            where: { correlationId },
-            orderBy: { createdAt: 'asc' }
-        });
+        console.log(`\n=== 🔎 [KAFKA] K-STREAM AUDIT TRACE FOR [${correlationId}] ===`);
+        const events = await this.fetchAllEvents('banking-events', e => e.correlationId === correlationId);
 
-        console.log(`\n=== 🔎 AUDIT TRACE FOR [${correlationId}] ===`);
         events.forEach(e => {
-            console.log(`[${e.createdAt.toISOString()}] ${e.eventType}: ${e.payload}`);
+            console.log(`[${new Date(parseInt(e.timestamp)).toISOString()}] ${e.eventType}: ${JSON.stringify(e.payload)}`);
         });
-        console.log(`=================================================\n`);
-
+        console.log(`=================================================================\n`);
         return events;
     }
 
     /**
-     * Rebuild absolute account balance deterministically purely from historical events
+     * Rebuild absolute account balance deterministically from historical Kafka streams
      * @param {string} accountId 
      */
     async rebuildBalanceFromEvents(accountId) {
-        // Collect all immutable events for this specific account
-        const events = await prisma.eventStore.findMany({
-            where: { aggregateId: accountId },
-            orderBy: { createdAt: 'asc' }
+        console.log(`\n=== 📈 [KAFKA] EVENT SOURCED CONSUMER REPLAY FOR ${accountId} ===`);
+        
+        const events = await this.fetchAllEvents('banking-events', e => {
+            return e.payload.account_id === accountId || e.payload.accountId === accountId;
         });
 
         let rebuiltBalance = 0;
         
-        // 1. First find if there's an AccountCreated event (if we emitted one)
-        // 2. Iterate dynamically over final Transaction events
-        // 3. Subtract DEBIT, Add CREDIT.
-        
-        // Filter out deduplicated successful transactions 
-        // We only want to apply effects for `TransactionCompleted` signals,
-        // and safely inverse `TransactionCompensated` if they exist.
-        
         for (const event of events) {
-            const payload = JSON.parse(event.payload);
+            const payload = event.payload;
 
             if (event.eventType === 'TransactionCompleted') {
                 if (payload.type === 'DEBIT') {
@@ -52,28 +95,22 @@ class AuditService {
                 }
             }
             
-            // Apply reversals precisely
             if (event.eventType === 'TransactionCompensated') {
-                // Find the original to reverse the math
                 const originalTx = events.find(e => e.eventType === 'TransactionCompleted' && e.correlationId === event.correlationId);
                 if (originalTx) {
-                    const originalPayload = JSON.parse(originalTx.payload);
-                    if (originalPayload.type === 'DEBIT') {
-                        rebuiltBalance += originalPayload.amount; // Give it back
-                    } else if (originalPayload.type === 'CREDIT' || originalPayload.type === 'DEPOSIT') {
-                        rebuiltBalance -= originalPayload.amount; // Take it back
-                    }
+                    const originalPayload = originalTx.payload;
+                    if (originalPayload.type === 'DEBIT') rebuiltBalance += originalPayload.amount;
+                    else if (originalPayload.type === 'CREDIT' || originalPayload.type === 'DEPOSIT') rebuiltBalance -= originalPayload.amount;
                 }
             }
         }
         
-        console.log(`\n=== 📈 EVENT SOURCED REPLAY BUILD FOR ${accountId} ===`);
-        console.log(`Replayed over ${events.length} aggregate events.`);
+        console.log(`Streamed ${events.length} aggregate events from 'banking-events' topic`);
         console.log(`Calculated Deterministic Absolute Balance: ₹${rebuiltBalance}`);
-        console.log(`==========================================================\n`);
+        console.log(`===================================================================\n`);
 
         return rebuiltBalance;
     }
 }
 
-export default new AuditService();
+export default new KafkaAuditService();

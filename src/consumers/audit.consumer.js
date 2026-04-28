@@ -1,7 +1,7 @@
-import prisma from '../lib/prisma.js';
+import { getProducer } from '../lib/kafka.js';
 import eventBus from '../lib/events.js';
 
-class AuditConsumer {
+class AuditKafkaProducer {
     constructor() {
         this.startListening();
     }
@@ -13,36 +13,39 @@ class AuditConsumer {
             'TransactionBlocked',
             'TransactionFinalized',
             'TransactionCompensated',
-            'LedgerUpdated'
+            'LedgerUpdated',
+            'AccountCreated'
         ];
 
         for (const eventName of eventsToTrack) {
             eventBus.on(eventName, async (payload) => {
-                await this.storeEvent(eventName, payload);
+                await this.publishToKafka(eventName, payload);
             });
         }
     }
 
-    async storeEvent(eventType, payload) {
+    async publishToKafka(eventType, payload) {
         try {
-            // Correlation IDs link events back to specific transaction workflows
             const correlationId = payload.transaction_id || payload.transactionId || 'UNKNOWN';
-            const aggregateId = payload.account_id || payload.accountId || 'UNKNOWN';
+            const producer = getProducer();
 
-            // Event Store Append-Only Persistance
-            await prisma.eventStore.create({
-                data: {
-                    aggregateId,
-                    correlationId,
-                    eventType,
-                    payload: JSON.stringify(payload)
-                }
+            await producer.send({
+                topic: 'banking-events',
+                messages: [
+                    {
+                        key: correlationId, // Partition mapping for sequentially ordered traces
+                        headers: {
+                            eventType: eventType
+                        },
+                        value: JSON.stringify(payload)
+                    }
+                ]
             });
-            console.log(`[AUDIT STORE] 🗄️ Persisted ${eventType} for correlation_id: ${correlationId}`);
+            console.log(`[KAFKA AUDIT] Published ${eventType} into Event Store for trace ${correlationId}`);
         } catch (error) {
-            console.error(`[AUDIT STORE ERROR] Failed to save ${eventType}:`, error);
+            console.error(`[KAFKA ERROR] Failed to push trace to Kafka for ${eventType}:`, error);
         }
     }
 }
 
-export default new AuditConsumer();
+export default new AuditKafkaProducer();
