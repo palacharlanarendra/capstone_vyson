@@ -1,0 +1,88 @@
+Table Account {
+  id varchar [primary key]
+  balance float
+  createdAt datetime
+  isFlagged boolean
+}
+
+Table Transaction {
+  id varchar [primary key]
+  accountId varchar
+  type varchar
+  amount float
+  status varchar
+  createdAt datetime
+  ipAddress varchar
+  deviceFingerprint varchar
+}
+
+Table FraudAnalysis {
+  id varchar [primary key]
+  transactionId varchar [unique]
+  status varchar
+  reason varchar
+  createdAt datetime
+}
+
+Table LedgerEntry {
+  id varchar [primary key]
+  transactionId varchar [unique]
+  accountId varchar
+  amount float
+  balanceAfter float
+  createdAt datetime
+}
+
+Table DailyMetrics {
+  id varchar [primary key]
+  date varchar [unique]
+  totalTxnCount int
+  totalVolume float
+  updatedAt datetime
+}
+
+Table OutboxEvent {
+  id varchar [primary key]
+  eventType varchar
+  payload varchar
+  status varchar
+  retryCount int
+  nextRetryAt datetime
+  errorReason varchar
+  createdAt datetime
+  updatedAt datetime
+}
+
+Table DeadLetterQueue {
+  id varchar [primary key]
+  eventId varchar [unique]
+  eventType varchar
+  payload varchar
+  failureReason varchar
+  createdAt datetime
+}
+
+Table TransactionOrchestrator {
+  id varchar [primary key]
+  transactionId varchar [unique]
+  paymentAuth boolean
+  ledgerUpdated boolean
+  status varchar
+  createdAt datetime
+  updatedAt datetime
+}
+
+Table EventStore {
+  id varchar [primary key]
+  aggregateId varchar
+  correlationId varchar
+  eventType varchar
+  payload varchar
+  createdAt datetime
+}
+
+// Relationships
+Ref: Transaction.accountId > Account.id
+Ref: FraudAnalysis.transactionId - Transaction.id
+Ref: TransactionOrchestrator.transactionId - Transaction.id
+Ref: LedgerEntry.transactionId - Transaction.id
