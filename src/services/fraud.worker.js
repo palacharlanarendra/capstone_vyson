@@ -1,5 +1,6 @@
 import prisma from '../lib/prisma.js';
 import eventBus from '../lib/events.js';
+import * as Sentry from '@sentry/node';
 
 class FraudWorker {
     constructor() {
@@ -75,6 +76,7 @@ class FraudWorker {
 
         } catch (error) {
             console.error(`[ASYNC FRAUD ERRROR] Failed to process async fraud rules for transaction ${transaction_id}:`, error.message);
+            Sentry.captureException(error, { extra: { payload } });
             // It is retryable: The status remains 'PENDING' or doesn't exist, capable of being picked up again
         }
     }

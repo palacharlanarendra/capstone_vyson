@@ -1,5 +1,6 @@
 import prisma from '../lib/prisma.js';
 import eventBus from '../lib/events.js';
+import * as Sentry from '@sentry/node';
 
 class AnalyticsConsumer {
     constructor() {
@@ -32,6 +33,7 @@ class AnalyticsConsumer {
 
             } catch (error) {
                 console.error(`[ANALYTICS SERVICE ERROR] Failed to aggregate metrics:`, error);
+                Sentry.captureException(error, { extra: { payload } });
             }
         });
     }

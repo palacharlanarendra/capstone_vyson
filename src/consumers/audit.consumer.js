@@ -1,5 +1,6 @@
 import { getProducer } from '../lib/kafka.js';
 import eventBus from '../lib/events.js';
+import * as Sentry from '@sentry/node';
 
 class AuditKafkaProducer {
     constructor() {
@@ -44,6 +45,7 @@ class AuditKafkaProducer {
             console.log(`[KAFKA AUDIT] Published ${eventType} into Event Store for trace ${correlationId}`);
         } catch (error) {
             console.error(`[KAFKA ERROR] Failed to push trace to Kafka for ${eventType}:`, error);
+            Sentry.captureException(error, { extra: { eventType, payload } });
         }
     }
 }

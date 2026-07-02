@@ -1,3 +1,5 @@
+import './src/instrument.js';
+import * as Sentry from "@sentry/node";
 import express from "express";
 import accountRoutes from './src/routes/account.routes.js';
 import transactionRoutes from './src/routes/transaction.routes.js';
@@ -26,6 +28,9 @@ app.get("/", (req, res) => {
 // Routes integration
 app.use('/api/accounts', accountRoutes);
 app.use('/api/transactions', transactionRoutes);
+
+// Sentry error handler
+Sentry.setupExpressErrorHandler(app);
 
 // Global Error Handler
 app.use((err, req, res, next) => {

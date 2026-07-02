@@ -1,5 +1,6 @@
 import prisma from '../lib/prisma.js';
 import eventBus from '../lib/events.js';
+import * as Sentry from '@sentry/node';
 
 const MAX_RETRIES = 3;
 
@@ -37,6 +38,7 @@ class OutboxWorker {
             }
         } catch (error) {
             console.error(`[OUTBOX WORKER ERROR] Polling failed:`, error);
+            Sentry.captureException(error);
         } finally {
             this.isPolling = false;
         }
@@ -73,6 +75,7 @@ class OutboxWorker {
 
         } catch (error) {
             console.error(`[OUTBOX EVENT ERROR] Event ${event.id} failed:`, error.message);
+            Sentry.captureException(error, { extra: { event } });
             
             const newRetryCount = event.retryCount + 1;
             

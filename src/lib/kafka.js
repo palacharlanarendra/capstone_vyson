@@ -1,4 +1,5 @@
 import { Kafka } from 'kafkajs';
+import * as Sentry from '@sentry/node';
 
 const kafka = new Kafka({
   clientId: 'banking-app',
@@ -17,6 +18,7 @@ export const connectKafka = async () => {
         console.log('[KAFKA] Connected to broker successfully');
     } catch (err) {
         console.error('[KAFKA ERROR] Failed to connect:', err);
+        Sentry.captureException(err);
     }
 };
 

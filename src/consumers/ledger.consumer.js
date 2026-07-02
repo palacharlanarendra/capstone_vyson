@@ -1,5 +1,6 @@
 import prisma from '../lib/prisma.js';
 import eventBus from '../lib/events.js';
+import * as Sentry from '@sentry/node';
 
 class LedgerConsumer {
     constructor() {
@@ -30,6 +31,7 @@ class LedgerConsumer {
                     console.log(`[LEDGER SERVICE] ⚠️ Ledger entry already exists for Transaction ${payload.transaction_id} (Idempotent)`);
                 } else {
                     console.error(`[LEDGER SERVICE ERROR] Failed to append ledger entry:`, error);
+                    Sentry.captureException(error);
                 }
             }
         });

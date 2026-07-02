@@ -1,6 +1,7 @@
 import prisma from '../lib/prisma.js';
 import eventBus from '../lib/events.js';
 import AccountService from './account.service.js';
+import * as Sentry from '@sentry/node';
 
 class SagaOrchestrator {
     constructor() {
@@ -39,6 +40,7 @@ class SagaOrchestrator {
             }
         } catch (error) {
             console.error(`[SAGA ERROR] Failed to handle LedgerUpdated for ${transactionId}:`, error);
+            Sentry.captureException(error, { extra: { transactionId } });
         }
     }
 
@@ -62,6 +64,7 @@ class SagaOrchestrator {
             eventBus.emit('TransactionFinalized', { transaction_id: transactionId });
         } catch (error) {
             console.error(`[SAGA ERROR] Failed to finalize transaction ${transactionId}:`, error);
+            Sentry.captureException(error, { extra: { transactionId } });
         }
     }
 
@@ -82,6 +85,7 @@ class SagaOrchestrator {
             }
         } catch (error) {
             console.error(`[SAGA MONITOR ERROR]`, error);
+            Sentry.captureException(error);
         }
     }
 
@@ -117,6 +121,7 @@ class SagaOrchestrator {
 
         } catch (error) {
             console.error(`[SAGA FATAL] Failed to compensate transaction ${saga.transactionId}:`, error);
+            Sentry.captureException(error, { extra: { saga } });
         }
     }
 }
